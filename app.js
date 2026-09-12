@@ -23,6 +23,7 @@ let toastTimer = null;
 let readerPageIndex = 0;
 let positionedId = null;
 let paginationCache = null;
+let paginationRun = null;
 
 const app = document.querySelector('#app');
 const fileInput = document.querySelector('#file-input');
@@ -166,6 +167,24 @@ function setLineHeightDebounced(value) {
   const reader = document.querySelector('.reader');
   if (reader) reader.style.setProperty('--reader-lh', value);
   updateSizeControlUI();
+  scheduleSettingsApply();
+}
+function setFontDebounced(value) {
+  state.settings.font = value;
+  const reader = document.querySelector('.reader');
+  if (reader) reader.style.setProperty('--reader-font', value === 'serif' ? 'Georgia, serif' : 'Arial, sans-serif');
+  const backdrop = document.querySelector('#settings-backdrop');
+  if (backdrop) {
+    backdrop.querySelectorAll('[data-font]').forEach(btn => btn.classList.toggle('active', btn.dataset.font === value));
+    const caption = backdrop.querySelectorAll('.setting-block')[4]?.querySelector('.setting-caption');
+    if (caption) caption.textContent = value === 'serif' ? 'с засечками' : 'без засечек';
+  }
+  scheduleSettingsApply();
+}
+function setWordWrapDebounced(value) {
+  state.settings.wordWrap = value;
+  const copy = document.querySelector('#reader-copy');
+  if (copy) copy.classList.toggle('word-wrap', !!value);
   scheduleSettingsApply();
 }
 function closeImageViewer() { document.querySelector('.img-viewer')?.remove(); }
@@ -325,8 +344,8 @@ function bindEvents() {
   document.querySelectorAll('[data-bg]').forEach(btn => btn.addEventListener('click', () => updateSetting('bg', btn.dataset.bg)));
   document.querySelector('#custom-color')?.addEventListener('input', e => updateSetting('bg', e.target.value));
   document.querySelectorAll('[data-text]').forEach(btn => btn.addEventListener('click', () => updateSetting('text', btn.dataset.text)));
-  document.querySelectorAll('[data-font]').forEach(btn => btn.addEventListener('click', () => updateSetting('font', btn.dataset.font)));
-  document.querySelector('#word-wrap')?.addEventListener('change', e => updateSetting('wordWrap', e.target.checked));
+  document.querySelectorAll('[data-font]').forEach(btn => btn.addEventListener('click', () => setFontDebounced(btn.dataset.font)));
+  document.querySelector('#word-wrap')?.addEventListener('change', e => setWordWrapDebounced(e.target.checked));
   const stage = document.querySelector('#reader-stage');
   if (stage) {
     let holdTimer = null, holdPos = null, holdFired = false, downTime = 0;
@@ -434,57 +453,117 @@ function explodeBlock(blockHtml) {
   return [{ tag, words, html: cleaned.outerHTML }];
 }
 function wrapWords(tag, words) { return `<${tag}>${escapeHTML(words.join(' '))}</${tag}>`; }
+function paginationKey() {
+  const book = activeBook();
+  const copy = document.querySelector('#reader-copy');
+  const stage = document.querySelector('#reader-stage');
+  if (!book || !copy || !stage) return null;
+  const style = getComputedStyle(copy);
+  const availableHeight = Math.max(80, stage.clientHeight - parseFloat(getComputedStyle(stage).paddingTop) - parseFloat(getComputedStyle(stage).paddingBottom));
+  return [book.id, book.html ? book.html.length : (book.text || '').length, style.width, style.fontFamily, style.fontSize, style.fontWeight, style.lineHeight, state.settings.wordWrap, availableHeight].join('|');
+}
 function ensurePagination() {
   if (view !== 'reader' || !activeBook()) return;
-  const book = activeBook(); const copy = document.querySelector('#reader-copy'); const stage = document.querySelector('#reader-stage'); if (!copy || !stage) return;
-  const style = getComputedStyle(copy); const availableHeight = Math.max(80, stage.clientHeight - parseFloat(getComputedStyle(stage).paddingTop) - parseFloat(getComputedStyle(stage).paddingBottom));
-  const key = [book.id, book.html ? book.html.length : (book.text || '').length, style.width, style.fontFamily, style.fontSize, style.fontWeight, style.lineHeight, state.settings.wordWrap, availableHeight].join('|');
+  const key = paginationKey();
+  if (!key) return;
   if (paginationCache?.key === key) return;
-  const measure = copy.cloneNode(false); measure.id = 'reader-measure'; measure.style.position = 'fixed'; measure.style.left = '-100000px'; measure.style.top = '0'; measure.style.height = 'auto'; measure.style.maxHeight = 'none'; measure.style.width = `${copy.clientWidth}px`; measure.style.overflow = 'visible'; measure.style.visibility = 'hidden'; measure.style.padding = '0'; measure.style.fontSize = style.fontSize; measure.style.fontFamily = style.fontFamily; measure.style.fontWeight = style.fontWeight; measure.style.lineHeight = style.lineHeight; measure.style.letterSpacing = style.letterSpacing; (copy.parentNode || document.body).appendChild(measure);
-  const fits = parts => { measure.innerHTML = parts.join(''); return measure.scrollHeight <= availableHeight; };
-  const flush = () => { if (current.length) { pages.push(current.join('')); current = []; } };
-  const packWords = (tag, words, originalHtml) => {
-    if (!words.length) return;
-    const whole = originalHtml || wrapWords(tag, words);
-    if (current.length) {
-      if (fits(current.concat([whole]))) { current.push(whole); return; }
-      const trial = n => current.concat([wrapWords(tag, words.slice(0, n))]);
-      let lo = 0, hi = words.length;
-      while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (fits(trial(mid))) lo = mid; else hi = mid - 1; }
-      if (lo > 0) current.push(wrapWords(tag, words.slice(0, lo)));
-      flush();
-      packWords(tag, words.slice(lo), null);
-      return;
-    }
-    if (fits([whole])) { current.push(whole); return; }
-    if (words.length === 1) { current.push(whole); return; }
-    const half = Math.ceil(words.length / 2);
-    packWords(tag, words.slice(0, half), null);
-    packWords(tag, words.slice(half), null);
-  };
-  const packAtomic = html => {
-    if (current.length && !fits(current.concat([html]))) flush();
-    current.push(html);
-  };
-  const pages = []; let current = [];
-  if (book.html) {
-    splitBlocks(book.html).forEach(block => {
-      explodeBlock(block).forEach(part => {
-        if (part.words) packWords(part.tag, part.words, part.html);
-        else packAtomic(part.atomic);
-      });
-    });
-    flush();
-  } else {
-    const tokens = tokenizeText(book.text || 'У этой книги пока не удалось извлечь текст. Попробуйте открыть её ещё раз или использовать другой файл.');
-    let page = '';
-    tokens.forEach(token => { const next = appendToken(page, token); measure.innerHTML = formatPage(next, pages.length === 0); if (page && measure.scrollHeight > availableHeight) { pages.push(page); page = token.trim(); } else page = next; });
-    if (page) pages.push(page);
+  if (paginationRun) {
+    if (paginationRun.key === key) return;
+    paginationRun.cancelled = true;
   }
-  measure.remove();
-  paginationCache = { id: book.id, key, pages: pages.length ? pages : [book.html ? '' : ''] };
-  if (positionedId !== book.id) { positionedId = book.id; if (book.pageIndex != null) readerPageIndex = Math.min(Math.max(book.pageIndex, 0), paginationCache.pages.length - 1); else if (book.progress) readerPageIndex = pageIndexForProgress(paginationCache.pages.map(part => book.html ? htmlToText(part).length : part.length), book.progress); }
-  readerPageIndex = Math.min(readerPageIndex, paginationCache.pages.length - 1); render();
+  startPaginationRun(key);
+}
+function startPaginationRun(key) {
+  const book = activeBook();
+  const copy = document.querySelector('#reader-copy');
+  const stage = document.querySelector('#reader-stage');
+  const style = getComputedStyle(copy);
+  const availableHeight = Math.max(80, stage.clientHeight - parseFloat(getComputedStyle(stage).paddingTop) - parseFloat(getComputedStyle(stage).paddingBottom));
+  const measure = copy.cloneNode(false);
+  measure.id = 'reader-measure';
+  measure.style.position = 'fixed'; measure.style.left = '-100000px'; measure.style.top = '0'; measure.style.height = 'auto'; measure.style.maxHeight = 'none'; measure.style.width = `${copy.clientWidth}px`; measure.style.overflow = 'visible'; measure.style.visibility = 'hidden'; measure.style.padding = '0'; measure.style.fontSize = style.fontSize; measure.style.fontFamily = style.fontFamily; measure.style.fontWeight = style.fontWeight; measure.style.lineHeight = style.lineHeight; measure.style.letterSpacing = style.letterSpacing;
+  (copy.parentNode || document.body).appendChild(measure);
+  const run = {
+    key, book, measure, availableHeight, cancelled: false,
+    pages: [], current: [],
+    blocks: book.html ? splitBlocks(book.html) : null,
+    blockIndex: 0, parts: [], partIndex: 0,
+    stack: [],
+    tokens: book.html ? null : tokenizeText(book.text || 'У этой книги пока не удалось извлечь текст. Попробуйте открыть её ещё раз или использовать другой файл.'),
+    tokenIndex: 0, page: ''
+  };
+  const fits = parts => { measure.innerHTML = parts.join(''); return measure.scrollHeight <= availableHeight; };
+  const flush = () => { if (run.current.length) { run.pages.push(run.current.join('')); run.current = []; } };
+  const stepHtml = () => {
+    if (run.stack.length) {
+      const task = run.stack.pop();
+      if (!task.words.length) return true;
+      const whole = task.originalHtml || wrapWords(task.tag, task.words);
+      if (run.current.length) {
+        if (fits(run.current.concat([whole]))) { run.current.push(whole); return true; }
+        const trial = n => run.current.concat([wrapWords(task.tag, task.words.slice(0, n))]);
+        let lo = 0, hi = task.words.length;
+        while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (fits(trial(mid))) lo = mid; else hi = mid - 1; }
+        if (lo > 0) run.current.push(wrapWords(task.tag, task.words.slice(0, lo)));
+        flush();
+        run.stack.push({ tag: task.tag, words: task.words.slice(lo), originalHtml: null });
+        return true;
+      }
+      if (fits([whole])) { run.current.push(whole); return true; }
+      if (task.words.length === 1) { run.current.push(whole); return true; }
+      const half = Math.ceil(task.words.length / 2);
+      run.stack.push({ tag: task.tag, words: task.words.slice(half), originalHtml: null });
+      run.stack.push({ tag: task.tag, words: task.words.slice(0, half), originalHtml: null });
+      return true;
+    }
+    if (run.partIndex < run.parts.length) {
+      const part = run.parts[run.partIndex++];
+      if (part.words) { run.stack.push({ tag: part.tag, words: part.words, originalHtml: part.html }); return true; }
+      if (run.current.length && !fits(run.current.concat([part.atomic]))) flush();
+      run.current.push(part.atomic);
+      return true;
+    }
+    if (run.blockIndex < run.blocks.length) {
+      run.parts = explodeBlock(run.blocks[run.blockIndex++]);
+      run.partIndex = 0;
+      return true;
+    }
+    flush();
+    return false;
+  };
+  const stepTxt = () => {
+    if (run.tokenIndex < run.tokens.length) {
+      const token = run.tokens[run.tokenIndex++];
+      const next = appendToken(run.page, token);
+      measure.innerHTML = formatPage(next, run.pages.length === 0);
+      if (run.page && measure.scrollHeight > availableHeight) { run.pages.push(run.page); run.page = token.trim(); }
+      else run.page = next;
+      return true;
+    }
+    if (run.page) run.pages.push(run.page);
+    return false;
+  };
+  const finish = () => {
+    measure.remove();
+    if (paginationKey() !== key) { paginationRun = null; ensurePagination(); return; }
+    paginationCache = { id: book.id, key, pages: run.pages.length ? run.pages : [book.html ? '' : ''] };
+    if (positionedId !== book.id) { positionedId = book.id; if (book.pageIndex != null) readerPageIndex = Math.min(Math.max(book.pageIndex, 0), paginationCache.pages.length - 1); else if (book.progress) readerPageIndex = pageIndexForProgress(paginationCache.pages.map(part => book.html ? htmlToText(part).length : part.length), book.progress); }
+    readerPageIndex = Math.min(readerPageIndex, paginationCache.pages.length - 1);
+    paginationRun = null;
+    render();
+  };
+  const step = () => {
+    if (run.cancelled) { measure.remove(); if (paginationRun === run) paginationRun = null; return; }
+    if (paginationKey() !== key) { measure.remove(); if (paginationRun === run) paginationRun = null; ensurePagination(); return; }
+    if (!measure.isConnected) { const stageNow = document.querySelector('#reader-stage'); (stageNow || document.body).appendChild(measure); }
+    const started = performance.now();
+    let more = true;
+    do { more = book.html ? stepHtml() : stepTxt(); } while (more && performance.now() - started < 8);
+    if (!more) { finish(); return; }
+    setTimeout(step, 0);
+  };
+  paginationRun = run;
+  setTimeout(step, 0);
 }
 function changePage(delta) {
   const book = activeBook(); if (!book) return; const pages = paginationCache?.id === book.id ? paginationCache.pages : fallbackPages(book); const next = Math.max(0, Math.min(pages.length - 1, readerPageIndex + delta));
