@@ -152,8 +152,12 @@ function openImageViewer(src) {
   let scale = 1, tx = 0, ty = 0;
   let pinchBase = null, pinchMid0 = null, panStart = null, panBase = null, movedFlag = false;
   let lastTap = 0, lastTapTarget = null;
+  let zoomAnim = null, applyScheduled = false, applyRaf = 0;
   const clampValue = (value, min, max) => Math.max(min, Math.min(max, value));
   const apply = () => { img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; };
+  const flushApply = () => { applyScheduled = false; clampPan(); apply(); };
+  const scheduleApply = () => { if (applyScheduled) return; applyScheduled = true; applyRaf = requestAnimationFrame(flushApply); };
+  const cancelZoomAnim = () => { if (zoomAnim) { try { zoomAnim.cancel(); } catch (_) {} zoomAnim = null; } };
   const clampPan = () => {
     if (scale <= 1) { tx = 0; ty = 0; return; }
     const w = img.clientWidth || img.naturalWidth || 1, h = img.clientHeight || img.naturalHeight || 1;
@@ -163,20 +167,29 @@ function openImageViewer(src) {
     ty = sh <= vh ? (vh - sh) / 2 - Ly : clampValue(ty, vh - sh - Ly, -Ly);
   };
   const doubleTapZoom = point => {
+    cancelZoomAnim();
+    if (applyScheduled) { cancelAnimationFrame(applyRaf); applyScheduled = false; }
     const s1 = scale === 1 ? 2 : 1;
+    const from = img.style.transform || 'translate(0px, 0px) scale(1)';
     const rect = img.getBoundingClientRect();
     const Lx = rect.left - tx, Ly = rect.top - ty;
     const k = s1 / scale;
-    overlay.classList.add('zooming');
     if (s1 === 1) { scale = 1; tx = 0; ty = 0; }
     else { scale = s1; tx = (point.x - Lx) * (1 - k) + tx * k; ty = (point.y - Ly) * (1 - k) + ty * k; clampPan(); }
     apply();
-    setTimeout(() => overlay.classList.remove('zooming'), 220);
+    try {
+      zoomAnim = img.animate(
+        [{ transform: from }, { transform: `translate(${tx}px, ${ty}px) scale(${scale})` }],
+        { duration: 180, easing: 'ease-out' }
+      );
+      zoomAnim.onfinish = () => { zoomAnim = null; };
+    } catch (_) {}
   };
   overlay.addEventListener('pointerdown', e => {
     if (e.target.closest('.img-viewer-close')) return;
     e.preventDefault();
     try { overlay.setPointerCapture(e.pointerId); } catch (_) {}
+    cancelZoomAnim();
     const point = { x: e.clientX, y: e.clientY, target: e.target };
     pointers.set(e.pointerId, point);
     if (pointers.size === 1) {
@@ -187,7 +200,6 @@ function openImageViewer(src) {
       panStart = { x: e.clientX, y: e.clientY }; panBase = { tx, ty };
     } else if (pointers.size === 2) {
       lastTap = 0; lastTapTarget = null;
-      overlay.classList.remove('zooming');
       const pts = [...pointers.values()];
       const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       if (dist > 0) pinchBase = { scale, tx, ty, dist };
@@ -199,6 +211,7 @@ function openImageViewer(src) {
     const point = pointers.get(e.pointerId);
     if (!point) return;
     point.x = e.clientX; point.y = e.clientY;
+    cancelZoomAnim();
     if (pointers.size >= 2 && pinchBase) {
       const pts = [...pointers.values()];
       const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
@@ -209,13 +222,13 @@ function openImageViewer(src) {
         scale = next;
         tx = mid.x - pinchMid0.x * k + pinchBase.tx * k;
         ty = mid.y - pinchMid0.y * k + pinchBase.ty * k;
-        clampPan(); apply();
+        scheduleApply();
       }
       movedFlag = true;
     } else if (pointers.size === 1 && panStart) {
       tx = panBase.tx + (point.x - panStart.x);
       ty = panBase.ty + (point.y - panStart.y);
-      clampPan(); apply();
+      scheduleApply();
       if (Math.abs(point.x - panStart.x) + Math.abs(point.y - panStart.y) > 8) { movedFlag = true; lastTap = 0; lastTapTarget = null; }
     }
   });
