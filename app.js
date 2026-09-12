@@ -176,6 +176,7 @@ function bindEvents() {
       const fired = holdFired;
       cancelHold(); holdPos = null;
       if (fired || !quick || moved) return;
+      if (chromeVisible) { chromeVisible = false; document.querySelector('.reader')?.classList.remove('chrome-visible'); }
       const rect = stage.getBoundingClientRect();
       const x = (e.clientX - rect.left) / rect.width;
       if (x < 0.25) changePage(-1); else if (x > 0.75) changePage(1);
