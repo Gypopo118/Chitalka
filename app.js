@@ -17,6 +17,7 @@ let chromeVisible = false;
 let settingsOpen = false;
 let longPressId = null;
 let pressTimer = null;
+let settingsDebounceTimer = null;
 let swipeStart = null;
 let toastTimer = null;
 let readerPageIndex = 0;
@@ -137,6 +138,36 @@ function openReader(id) {
 }
 function openLibrary() { state.activeBookId = null; positionedId = null; saveState(); view = 'library'; settingsOpen = false; chromeVisible = false; history.pushState({ view: 'library' }, '', '#library'); render(); }
 function updateSetting(key, value) { state.settings[key] = value; saveState(); render(); }
+function scheduleSettingsApply() {
+  if (settingsDebounceTimer != null) clearTimeout(settingsDebounceTimer);
+  settingsDebounceTimer = setTimeout(() => { settingsDebounceTimer = null; saveState(); requestAnimationFrame(ensurePagination); }, 400);
+}
+function flushPendingSettingsApply() {
+  if (settingsDebounceTimer != null) { clearTimeout(settingsDebounceTimer); settingsDebounceTimer = null; saveState(); }
+}
+function updateSizeControlUI() {
+  const backdrop = document.querySelector('#settings-backdrop');
+  if (!backdrop) return;
+  const blocks = backdrop.querySelectorAll('.setting-block');
+  if (blocks[0]) blocks[0].querySelector('.setting-caption').textContent = `${state.settings.fontSize}px`;
+  if (blocks[1]) blocks[1].querySelector('.setting-caption').textContent = Number(state.settings.lineHeight).toFixed(2);
+  const fs = backdrop.querySelector('#font-size'); if (fs) fs.value = state.settings.fontSize;
+  const lh = backdrop.querySelector('#line-height'); if (lh) lh.value = state.settings.lineHeight;
+}
+function setFontSizeDebounced(value) {
+  state.settings.fontSize = value;
+  const reader = document.querySelector('.reader');
+  if (reader) reader.style.setProperty('--reader-size', `${value}px`);
+  updateSizeControlUI();
+  scheduleSettingsApply();
+}
+function setLineHeightDebounced(value) {
+  state.settings.lineHeight = value;
+  const reader = document.querySelector('.reader');
+  if (reader) reader.style.setProperty('--reader-lh', value);
+  updateSizeControlUI();
+  scheduleSettingsApply();
+}
 function closeImageViewer() { document.querySelector('.img-viewer')?.remove(); }
 function openImageViewer(src) {
   closeImageViewer();
@@ -282,15 +313,15 @@ function bindEvents() {
   document.querySelectorAll('.cancel-delete').forEach(btn => btn.addEventListener('click', () => { longPressId = null; render(); }));
   document.querySelector('#back-library')?.addEventListener('click', openLibrary);
   document.querySelector('#open-settings')?.addEventListener('click', () => { settingsOpen = true; render(); });
-  document.querySelector('#close-settings')?.addEventListener('click', () => { settingsOpen = false; render(); });
-  document.querySelector('#done-settings')?.addEventListener('click', () => { settingsOpen = false; render(); });
-  document.querySelector('#settings-backdrop')?.addEventListener('click', e => { if (e.target.id === 'settings-backdrop') { settingsOpen = false; render(); } });
-  document.querySelector('#font-minus')?.addEventListener('click', () => updateSetting('fontSize', Math.max(10, state.settings.fontSize - 1)));
-  document.querySelector('#font-plus')?.addEventListener('click', () => updateSetting('fontSize', Math.min(34, state.settings.fontSize + 1)));
-  document.querySelector('#font-size')?.addEventListener('change', e => updateSetting('fontSize', Math.min(34, Math.max(10, Number(e.target.value) || 19))));
-  document.querySelector('#lh-minus')?.addEventListener('click', () => updateSetting('lineHeight', clampLineHeight(state.settings.lineHeight - 0.05)));
-  document.querySelector('#lh-plus')?.addEventListener('click', () => updateSetting('lineHeight', clampLineHeight(state.settings.lineHeight + 0.05)));
-  document.querySelector('#line-height')?.addEventListener('change', e => updateSetting('lineHeight', clampLineHeight(e.target.value)));
+  document.querySelector('#close-settings')?.addEventListener('click', () => { settingsOpen = false; flushPendingSettingsApply(); render(); });
+  document.querySelector('#done-settings')?.addEventListener('click', () => { settingsOpen = false; flushPendingSettingsApply(); render(); });
+  document.querySelector('#settings-backdrop')?.addEventListener('click', e => { if (e.target.id === 'settings-backdrop') { settingsOpen = false; flushPendingSettingsApply(); render(); } });
+  document.querySelector('#font-minus')?.addEventListener('click', () => setFontSizeDebounced(Math.max(10, state.settings.fontSize - 1)));
+  document.querySelector('#font-plus')?.addEventListener('click', () => setFontSizeDebounced(Math.min(34, state.settings.fontSize + 1)));
+  document.querySelector('#font-size')?.addEventListener('change', e => setFontSizeDebounced(Math.min(34, Math.max(10, Number(e.target.value) || 19))));
+  document.querySelector('#lh-minus')?.addEventListener('click', () => setLineHeightDebounced(clampLineHeight(state.settings.lineHeight - 0.05)));
+  document.querySelector('#lh-plus')?.addEventListener('click', () => setLineHeightDebounced(clampLineHeight(state.settings.lineHeight + 0.05)));
+  document.querySelector('#line-height')?.addEventListener('change', e => setLineHeightDebounced(clampLineHeight(e.target.value)));
   document.querySelectorAll('[data-bg]').forEach(btn => btn.addEventListener('click', () => updateSetting('bg', btn.dataset.bg)));
   document.querySelector('#custom-color')?.addEventListener('input', e => updateSetting('bg', e.target.value));
   document.querySelectorAll('[data-text]').forEach(btn => btn.addEventListener('click', () => updateSetting('text', btn.dataset.text)));
