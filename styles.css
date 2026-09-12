@@ -124,7 +124,6 @@ h1 { margin-top: 5px; font-size: clamp(30px, 8vw, 40px); letter-spacing: -.045em
 .swatches { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 13px; }
 .swatch { width: 31px; height: 31px; border-radius: 50%; border: 2px solid transparent; box-shadow: 0 0 0 1px #ffffff16; }
 .swatch.active { border-color: var(--accent); box-shadow: 0 0 0 3px #e8c86a44; }
-.color-wheel { background: conic-gradient(#ef7070,#e9c663,#75d68b,#69cbe4,#8089ee,#d077cf,#ef7070); }
 .custom-color { width: 31px; height: 31px; padding: 0; overflow: hidden; border-radius: 50%; background: transparent; border: 0; }
 .custom-color::-webkit-color-swatch-wrapper { padding: 0; }
 .custom-color::-webkit-color-swatch { border: 2px solid #ffffff55; border-radius: 50%; }
