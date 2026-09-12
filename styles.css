@@ -68,7 +68,6 @@ h1 { margin-top: 5px; font-size: clamp(30px, 8vw, 40px); letter-spacing: -.045em
 
 .reader { height: 100dvh; min-height: 100dvh; background: var(--reader-bg); color: var(--reader-text); position: relative; overflow: hidden; }
 .reader-stage { height: 100dvh; min-height: 100dvh; padding: max(28px, calc(env(safe-area-inset-top) + 28px)) 25px max(30px, calc(env(safe-area-inset-bottom) + 30px)); display: flex; align-items: flex-start; justify-content: center; overflow: hidden; }
-.reader.chrome-visible .reader-stage { padding-top: 92px; padding-bottom: 84px; }
 .reader-stage, .reader-copy { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .reader-copy { width: min(100%, 600px); height: 100%; max-height: 100%; overflow: hidden; font-family: var(--reader-font); font-size: var(--reader-size, 19px); font-weight: 400; line-height: var(--reader-lh, 1.65); letter-spacing: .005em; white-space: pre-wrap; overflow-wrap: anywhere; }
 .reader-copy.word-wrap { overflow-wrap: normal; word-break: normal; }
@@ -103,7 +102,11 @@ h1 { margin-top: 5px; font-size: clamp(30px, 8vw, 40px); letter-spacing: -.045em
 .modal-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: end center; padding: 12px; background: #0008; animation: fade-in .18s ease-out; }
 .settings-modal { width: min(100%, 600px); max-height: min(86dvh, 760px); overflow: auto; border-radius: 25px; background: #26292f; box-shadow: 0 20px 60px #0009; padding: 22px 18px max(18px, env(safe-area-inset-bottom)); animation: slide-up .22s ease-out; }
 .img-viewer { position: fixed; inset: 0; z-index: 35; display: grid; place-items: center; background: #000d; overflow: hidden; touch-action: none; animation: fade-in .15s ease-out; }
-.img-viewer img { max-width: 100vw; max-height: 100dvh; object-fit: contain; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; transform-origin: 0 0; will-change: transform; }
+.img-viewer-view { display: grid; place-items: center; max-width: 100vw; max-height: 100dvh; touch-action: none; transform-origin: 0 0; will-change: transform; }
+.img-viewer img { max-width: 100vw; max-height: 100dvh; object-fit: contain; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.reader-loading { position: fixed; inset: 0; z-index: 9; display: flex; align-items: center; justify-content: center; background: var(--reader-bg); }
+.reader-spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid #ffffff22; border-top-color: var(--accent, #e8c86a); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .img-viewer-close { position: absolute; z-index: 1; top: max(14px, calc(env(safe-area-inset-top) + 10px)); right: max(14px, calc(env(safe-area-inset-right) + 10px)); width: 38px; height: 38px; padding: 0; display: grid; place-items: center; border-radius: 50%; background: #383d45d9; color: #fff; font-size: 21px; line-height: 1; }
 .note-popup { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; justify-content: center; background: #0008; animation: fade-in .18s ease-out; }
 .note-popup-sheet { position: relative; width: min(100%, 600px); height: 50dvh; display: flex; flex-direction: column; background: #26292f; border-radius: 22px 22px 0 0; box-shadow: 0 20px 60px #0009; padding: 20px 18px max(18px, env(safe-area-inset-bottom)); animation: slide-up .22s ease-out; }

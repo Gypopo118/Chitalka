@@ -109,8 +109,10 @@ function renderReader() {
   const progress = book.pageIndex == null ? Math.round(book.progress || 0) : (pages.length <= 1 ? 100 : Math.round((pageIndex / (pages.length - 1)) * 100));
   const raw = pages[pageIndex] || '';
   const paragraphs = isHtml ? raw : formatPage(raw, pageIndex === 0);
+  const positioning = positionedId !== book.id && book.pageIndex != null && book.pageIndex > 0;
   return `<main class="app-shell reader ${chromeVisible ? 'chrome-visible' : ''}" style="--reader-size:${settings.fontSize}px;--reader-lh:${settings.lineHeight};--reader-bg:${settings.bg};--reader-text:${settings.text};--reader-font:${settings.font === 'serif' ? 'Georgia, serif' : 'Arial, sans-serif'}">
     <section class="reader-stage" id="reader-stage"><div class="reader-copy ${settings.wordWrap ? 'word-wrap' : ''}" id="reader-copy">${paragraphs}</div></section>
+    ${positioning ? '<div class="reader-loading" aria-hidden="true"><span class="reader-spinner"></span></div>' : ''}
     <div class="reader-chrome"><header class="reader-topbar"><button class="back-btn" id="back-library" aria-label="Назад в библиотеку"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg></button><div class="reader-title">${escapeHTML(book.title)}</div></header><footer class="reader-bottom"><button class="settings-pill" id="open-settings">Настройки</button></footer></div>
     <div class="page-progress">${progress}%</div>
     <div class="brightness-indicator" id="brightness-indicator">☀ ${Math.round((1 - settings.brightness) * 100)}%</div><div class="brightness-overlay" style="opacity:${settings.brightness}"></div>
@@ -195,16 +197,17 @@ function openImageViewer(src) {
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
   overlay.setAttribute('aria-label', 'Просмотр изображения');
-  overlay.innerHTML = `<button class="img-viewer-close" type="button" aria-label="Закрыть">×</button><img src="${escapeHTML(src)}" alt="" draggable="false">`;
+  overlay.innerHTML = `<button class="img-viewer-close" type="button" aria-label="Закрыть">×</button><div class="img-viewer-view"><img src="${escapeHTML(src)}" alt="" draggable="false"></div>`;
   document.querySelector('#app').appendChild(overlay);
   const img = overlay.querySelector('img');
+  const view = overlay.querySelector('.img-viewer-view');
   const pointers = new Map();
-  let scale = 1, tx = 0, ty = 0;
+  let scale = 1, tx = 0, ty = 0, renderedTx = 0, renderedTy = 0;
   let pinchBase = null, pinchMid0 = null, panStart = null, panBase = null, movedFlag = false;
   let lastTap = 0, lastTapTarget = null;
   let zoomAnim = null, applyScheduled = false, applyRaf = 0;
   const clampValue = (value, min, max) => Math.max(min, Math.min(max, value));
-  const apply = () => { img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; };
+  const apply = () => { view.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; renderedTx = tx; renderedTy = ty; };
   const flushApply = () => { applyScheduled = false; clampPan(); apply(); };
   const scheduleApply = () => { if (applyScheduled) return; applyScheduled = true; applyRaf = requestAnimationFrame(flushApply); };
   const cancelZoomAnim = () => { if (zoomAnim) { try { zoomAnim.cancel(); } catch (_) {} zoomAnim = null; } };
@@ -212,23 +215,24 @@ function openImageViewer(src) {
     if (scale <= 1) { tx = 0; ty = 0; return; }
     const w = img.clientWidth || img.naturalWidth || 1, h = img.clientHeight || img.naturalHeight || 1;
     const sw = w * scale, sh = h * scale, vw = window.innerWidth, vh = window.innerHeight;
-    const Lx = -tx + img.getBoundingClientRect().left, Ly = -ty + img.getBoundingClientRect().top;
+    const rect = view.getBoundingClientRect();
+    const Lx = rect.left - renderedTx, Ly = rect.top - renderedTy;
     tx = sw <= vw ? (vw - sw) / 2 - Lx : clampValue(tx, vw - sw - Lx, -Lx);
     ty = sh <= vh ? (vh - sh) / 2 - Ly : clampValue(ty, vh - sh - Ly, -Ly);
   };
   const doubleTapZoom = point => {
     cancelZoomAnim();
-    if (applyScheduled) { cancelAnimationFrame(applyRaf); applyScheduled = false; }
+    if (applyScheduled) { cancelAnimationFrame(applyRaf); applyScheduled = false; clampPan(); apply(); }
     const s1 = scale === 1 ? 2 : 1;
-    const from = img.style.transform || 'translate(0px, 0px) scale(1)';
-    const rect = img.getBoundingClientRect();
+    const from = view.style.transform || 'translate(0px, 0px) scale(1)';
+    const rect = view.getBoundingClientRect();
     const Lx = rect.left - tx, Ly = rect.top - ty;
     const k = s1 / scale;
     if (s1 === 1) { scale = 1; tx = 0; ty = 0; }
     else { scale = s1; tx = (point.x - Lx) * (1 - k) + tx * k; ty = (point.y - Ly) * (1 - k) + ty * k; clampPan(); }
     apply();
     try {
-      zoomAnim = img.animate(
+      zoomAnim = view.animate(
         [{ transform: from }, { transform: `translate(${tx}px, ${ty}px) scale(${scale})` }],
         { duration: 180, easing: 'ease-out' }
       );
