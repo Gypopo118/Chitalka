@@ -231,16 +231,21 @@ function splitBlocks(html) {
   const tmp = document.createElement('div'); tmp.innerHTML = html || '';
   return [...tmp.children].map(el => el.outerHTML).filter(Boolean);
 }
-function splitBlockByWords(blockHtml) {
-  const tmp = document.createElement('div'); tmp.innerHTML = blockHtml; const el = tmp.firstElementChild; if (!el) return [blockHtml];
+function explodeBlock(blockHtml) {
+  const tmp = document.createElement('div'); tmp.innerHTML = blockHtml; const el = tmp.firstElementChild;
+  if (!el) return [];
   const tag = el.tagName.toLowerCase();
-  if (tag === 'ul' || tag === 'ol') { const items = [...el.children]; return items.length > 1 ? items.map(li => `<${tag}><li>${li.innerHTML}</li></${tag}>`) : [blockHtml]; }
-  if (el.querySelector('img')) return [blockHtml];
-  if (!['p', 'h1', 'h2', 'h3', 'h4', 'blockquote', 'li'].includes(tag)) return [blockHtml];
-  const words = (el.textContent || '').match(/[^\s]+/g) || []; if (words.length < 2) return [blockHtml];
-  const chunks = []; for (let i = 0; i < words.length; i += 40) chunks.push(`<${tag}>${escapeHTML(words.slice(i, i + 40).join(' '))}</${tag}>`);
-  return chunks;
+  if (tag === 'ul' || tag === 'ol') {
+    const items = [...el.children];
+    return items.length ? items.map(li => ({ atomic: `<${tag}><li>${li.innerHTML}</li></${tag}>` })) : [{ atomic: blockHtml }];
+  }
+  if (el.querySelector('img')) return [{ atomic: blockHtml }];
+  if (!['p', 'h1', 'h2', 'h3', 'h4', 'blockquote'].includes(tag)) return [{ atomic: blockHtml }];
+  const words = (el.textContent || '').match(/[^\s]+/g) || [];
+  if (!words.length) return [];
+  return [{ tag, words, html: blockHtml }];
 }
+function wrapWords(tag, words) { return `<${tag}>${escapeHTML(words.join(' '))}</${tag}>`; }
 function ensurePagination() {
   if (view !== 'reader' || !activeBook()) return;
   const book = activeBook(); const copy = document.querySelector('#reader-copy'); const stage = document.querySelector('#reader-stage'); if (!copy || !stage) return;
@@ -250,15 +255,36 @@ function ensurePagination() {
   const measure = copy.cloneNode(false); measure.id = 'reader-measure'; measure.style.position = 'fixed'; measure.style.left = '-100000px'; measure.style.top = '0'; measure.style.height = 'auto'; measure.style.maxHeight = 'none'; measure.style.width = `${copy.clientWidth}px`; measure.style.overflow = 'visible'; measure.style.visibility = 'hidden'; measure.style.padding = '0'; measure.style.fontSize = style.fontSize; measure.style.fontFamily = style.fontFamily; measure.style.fontWeight = style.fontWeight; measure.style.lineHeight = style.lineHeight; measure.style.letterSpacing = style.letterSpacing; (copy.parentNode || document.body).appendChild(measure);
   const fits = parts => { measure.innerHTML = parts.join(''); return measure.scrollHeight <= availableHeight; };
   const flush = () => { if (current.length) { pages.push(current.join('')); current = []; } };
-  const pushChunk = chunk => { if (current.length && !fits(current.concat([chunk]))) flush(); current.push(chunk); };
+  const packWords = (tag, words, originalHtml) => {
+    if (!words.length) return;
+    const whole = originalHtml || wrapWords(tag, words);
+    if (current.length) {
+      if (fits(current.concat([whole]))) { current.push(whole); return; }
+      const trial = n => current.concat([wrapWords(tag, words.slice(0, n))]);
+      let lo = 0, hi = words.length;
+      while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (fits(trial(mid))) lo = mid; else hi = mid - 1; }
+      if (lo > 0) current.push(wrapWords(tag, words.slice(0, lo)));
+      flush();
+      packWords(tag, words.slice(lo), null);
+      return;
+    }
+    if (fits([whole])) { current.push(whole); return; }
+    if (words.length === 1) { current.push(whole); return; }
+    const half = Math.ceil(words.length / 2);
+    packWords(tag, words.slice(0, half), null);
+    packWords(tag, words.slice(half), null);
+  };
+  const packAtomic = html => {
+    if (current.length && !fits(current.concat([html]))) flush();
+    current.push(html);
+  };
   const pages = []; let current = [];
   if (book.html) {
     splitBlocks(book.html).forEach(block => {
-      if (!current.length && fits([block])) { current = [block]; return; }
-      if (current.length && fits(current.concat([block]))) { current.push(block); return; }
-      flush();
-      if (fits([block])) current = [block];
-      else splitBlockByWords(block).forEach(pushChunk);
+      explodeBlock(block).forEach(part => {
+        if (part.words) packWords(part.tag, part.words, part.html);
+        else packAtomic(part.atomic);
+      });
     });
     flush();
   } else {
