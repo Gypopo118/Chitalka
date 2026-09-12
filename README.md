@@ -31,7 +31,7 @@ python -m http.server 4173
 - `icons/maskable-512.png` — maskable-версия с полями под круглые/каплевидные маски Android;
 - `icons/icon-180.png` — `apple-touch-icon`;
 - `android-res/mipmap-*/ic_launcher.png` — лаунчер-иконки для APK (mdpi 48 … xxxhdpi 192).
-- Исходники лежат в `Icons/`, `drawable-*` — старый набор, не используется.
+- Исходники лежат в `icons/`, старый набор `drawable-*` не используется.
 
 ## Сборка APK (GitHub Actions)
 
