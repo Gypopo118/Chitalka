@@ -1,4 +1,4 @@
-const CACHE = 'chitalca-v12';
+const CACHE = 'chitalca-v13';
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png'].map(url => new Request(url, { cache: 'reload' })))));
   self.skipWaiting();
