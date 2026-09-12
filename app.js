@@ -240,6 +240,23 @@ function openImageViewer(src) {
   overlay.addEventListener('contextmenu', e => e.preventDefault());
   overlay.querySelector('.img-viewer-close').addEventListener('click', closeImageViewer);
 }
+function closeNotePopup() { document.querySelector('.note-popup')?.remove(); }
+function openNotePopup(noteId) {
+  closeNotePopup();
+  const content = activeBook()?.notes?.[noteId] || '';
+  if (!content) { showToast('Сноска не найдена'); return; }
+  const overlay = document.createElement('div');
+  overlay.className = 'note-popup';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', 'Сноска');
+  overlay.innerHTML = `<div class="note-popup-sheet"><button class="note-popup-close" type="button" aria-label="Закрыть">×</button><div class="note-popup-body">${content}</div></div>`;
+  document.querySelector('#app').appendChild(overlay);
+  overlay.addEventListener('click', e => {
+    if (e.target.closest('.note-popup-close')) { closeNotePopup(); return; }
+    if (e.target === overlay) closeNotePopup();
+  });
+}
 function bindEvents() {
   document.querySelector('#add-book')?.addEventListener('click', () => fileInput.click());
   document.querySelectorAll('.book-card').forEach(card => {
@@ -281,6 +298,11 @@ function bindEvents() {
       const img = e.target.closest('img');
       if (img) {
         if (!fired && quick && !moved) openImageViewer(img.getAttribute('src') || '');
+        return;
+      }
+      const noteLink = e.target.closest('.note-link');
+      if (noteLink) {
+        if (!fired && quick && !moved) openNotePopup(noteLink.getAttribute('data-note') || '');
         return;
       }
       if (fired || !quick || moved) return;
@@ -436,7 +458,7 @@ fileInput.addEventListener('change', async event => { const files = [...event.ta
 async function importBook(file) {
   const extension = file.name.split('.').pop().toLowerCase();
   if (!['fb2', 'epub', 'txt', 'docx'].includes(extension)) throw new Error('Файл не поддерживается');
-  let title = file.name.replace(/\.[^.]+$/, ''), author = 'Импортированный файл', text = '', html = '';
+  let title = file.name.replace(/\.[^.]+$/, ''), author = 'Импортированный файл', text = '', html = '', notes = null;
   if (extension === 'txt') text = await file.text();
   else if (extension === 'fb2') {
     const raw = await file.text(); const xml = new DOMParser().parseFromString(raw, 'application/xml');
@@ -445,8 +467,31 @@ async function importBook(file) {
     text = [...xml.querySelectorAll('body section, body')].map(node => node.textContent.trim()).join('\n\n');
     const binaries = {};
     [...xml.getElementsByTagName('binary')].forEach(bin => { const id = bin.getAttribute('id'); if (id) binaries[id] = { type: bin.getAttribute('content-type') || 'image/jpeg', data: bin.textContent.replace(/\s/g, '') }; });
-    const bodies = [...xml.getElementsByTagName('body')].filter(body => body.getAttribute('name') !== 'notes');
+    const bodies = [...xml.getElementsByTagName('body')].filter(body => !['notes', 'note'].includes(body.getAttribute('name')));
     html = bodies.map(body => fb2BodyToHtml(body, binaries)).join('');
+    const noteBodies = [...xml.getElementsByTagName('body')].filter(body => ['notes', 'note'].includes(body.getAttribute('name')));
+    if (noteBodies.length) {
+      const noteIdFor = el => {
+        if (el.nodeType !== 1) return '';
+        const own = el.getAttribute('id') || el.getAttribute('name') || '';
+        if (own) return own;
+        const anchors = el.getElementsByTagName('a');
+        for (const anchor of anchors) { const value = anchor.getAttribute('id') || anchor.getAttribute('name'); if (value) return value; }
+        return '';
+      };
+      const collected = {};
+      let order = 0;
+      noteBodies.forEach(body => {
+        const sections = [...body.childNodes].filter(node => node.nodeType === 1);
+        (sections.length ? sections : [body]).forEach(section => {
+          order += 1;
+          const id = noteIdFor(section) || `n${order}`;
+          const blockHtml = fb2BodyToHtml(section, binaries);
+          if (htmlToText(blockHtml).trim()) collected[id] = blockHtml;
+        });
+      });
+      if (Object.keys(collected).length) notes = collected;
+    }
   }
   else {
     const entries = await unzip(file);
@@ -477,6 +522,7 @@ async function importBook(file) {
   if (!text.trim()) text = `Файл «${title}» добавлен.\n\nТекст не удалось извлечь автоматически в этом браузере, но книга сохранена в библиотеке.`;
   const book = { id: `book-${Date.now()}-${Math.random().toString(16).slice(2)}`, title, author, format: extension.toUpperCase(), progress: 0, text: text.trim(), cover: null, updated: Date.now() };
   if (html && htmlToText(html).trim()) book.html = html;
+  if (notes) book.notes = notes;
   return book;
 }
 function normalizeZipPath(path) {
@@ -512,7 +558,11 @@ function fb2BodyToHtml(body, binaries) {
     if (tag === 'v') return `${kids(node)}<br>`;
     if (tag === 'empty-line') return '<p><br></p>';
     if (tag === 'image') return imgFor(node);
-    if (tag === 'a') return kids(node);
+    if (tag === 'a') {
+      const href = node.getAttribute('xlink:href') || node.getAttribute('l:href') || node.getAttribute('href') || '';
+      if (href.startsWith('#')) return `<button type="button" class="note-link" data-note="${escapeHTML(href.slice(1))}">${kids(node)}</button>`;
+      return kids(node);
+    }
     return kids(node);
   }
   return [...body.childNodes].map(node => {
@@ -534,6 +584,14 @@ function collectBlocks(root, resolveImg) {
       if (!src) return null;
       const img = doc.createElement('img'); img.setAttribute('src', src); img.setAttribute('alt', node.getAttribute('alt') || '');
       return img;
+    }
+    if (tag === 'button' && node.classList.contains('note-link') && node.getAttribute('data-note')) {
+      const btn = doc.createElement('button');
+      btn.setAttribute('type', 'button');
+      btn.setAttribute('class', 'note-link');
+      btn.setAttribute('data-note', node.getAttribute('data-note'));
+      appendInline(node, btn);
+      return btn;
     }
     const inlineTags = { strong: 'strong', b: 'strong', em: 'em', i: 'em', u: 'u', s: 's', strike: 's', sub: 'sub', sup: 'sup', span: 'span', font: 'span', a: 'span', code: 'code' };
     if (inlineTags[tag]) { const el = doc.createElement(inlineTags[tag]); appendInline(node, el); return el; }
