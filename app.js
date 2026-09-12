@@ -44,7 +44,7 @@ function saveState() {
   catch (err) {
     if (!isQuotaError(err)) return;
     try {
-      const slim = { ...state, books: state.books.map(book => (book.html ? { ...book, html: stripImages(book.html) } : book)) };
+      const slim = { ...state, books: state.books.map(book => (book.html || book.coverData ? { ...book, html: book.html ? stripImages(book.html) : book.html, coverData: undefined } : book)) };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
       console.warn('chitalca: localStorage full, images dropped, text and progress saved');
       return;
@@ -458,7 +458,7 @@ fileInput.addEventListener('change', async event => { const files = [...event.ta
 async function importBook(file) {
   const extension = file.name.split('.').pop().toLowerCase();
   if (!['fb2', 'epub', 'txt', 'docx'].includes(extension)) throw new Error('Файл не поддерживается');
-  let title = file.name.replace(/\.[^.]+$/, ''), author = 'Импортированный файл', text = '', html = '', notes = null;
+  let title = file.name.replace(/\.[^.]+$/, ''), author = 'Импортированный файл', text = '', html = '', notes = null, coverData = null;
   if (extension === 'txt') text = await file.text();
   else if (extension === 'fb2') {
     const raw = await file.text(); const xml = new DOMParser().parseFromString(raw, 'application/xml');
@@ -467,6 +467,14 @@ async function importBook(file) {
     text = [...xml.querySelectorAll('body section, body')].map(node => node.textContent.trim()).join('\n\n');
     const binaries = {};
     [...xml.getElementsByTagName('binary')].forEach(bin => { const id = bin.getAttribute('id'); if (id) binaries[id] = { type: bin.getAttribute('content-type') || 'image/jpeg', data: bin.textContent.replace(/\s/g, '') }; });
+    try {
+      const coverImage = xml.querySelector('description > title-info > coverpage > image');
+      if (coverImage) {
+        const href = coverImage.getAttribute('xlink:href') || coverImage.getAttribute('l:href') || coverImage.getAttribute('href') || '';
+        const bin = binaries[href.replace(/^#/, '')];
+        if (bin) coverData = await resolveCover(`data:${bin.type};base64,${bin.data}`);
+      }
+    } catch (_) {}
     const bodies = [...xml.getElementsByTagName('body')].filter(body => !['notes', 'note'].includes(body.getAttribute('name')));
     html = bodies.map(body => fb2BodyToHtml(body, binaries)).join('');
     const noteBodies = [...xml.getElementsByTagName('body')].filter(body => ['notes', 'note'].includes(body.getAttribute('name')));
@@ -523,7 +531,37 @@ async function importBook(file) {
   const book = { id: `book-${Date.now()}-${Math.random().toString(16).slice(2)}`, title, author, format: extension.toUpperCase(), progress: 0, text: text.trim(), cover: null, updated: Date.now() };
   if (html && htmlToText(html).trim()) book.html = html;
   if (notes) book.notes = notes;
+  if (coverData) book.coverData = coverData;
   return book;
+}
+async function resolveCover(url) {
+  if (url.startsWith('data:image/svg')) return url; // SVG без intrinsic size — оригинал как есть
+  try { atob(url.slice(url.indexOf(';base64,') + 8)); }
+  catch (_) { return null; } // битый base64 — обложки нет и без ошибки в консоли
+  try { return await downscaleCover(url); }
+  catch (_) { return url; } // canvas недоступен — оригинал
+}
+function downscaleCover(url) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth, h = img.naturalHeight;
+        if (!w || !h) { resolve(null); return; }
+        const max = Math.max(w, h);
+        if (max <= 512) { resolve(url); return; }
+        const scale = 512 / max;
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(w * scale));
+        canvas.height = Math.max(1, Math.round(h * scale));
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        const jpeg = canvas.toDataURL('image/jpeg', 0.85);
+        resolve(jpeg && jpeg.startsWith('data:') ? jpeg : url);
+      } catch (_) { resolve(url); }
+    };
+    img.onerror = () => resolve(null); // битый binary — обложки нет
+    img.src = url;
+  });
 }
 function normalizeZipPath(path) {
   const parts = [];
