@@ -93,7 +93,6 @@ h1 { margin-top: 5px; font-size: clamp(30px, 8vw, 40px); letter-spacing: -.045em
 .reader-title { font-size: 14px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .reader-bottom { position: absolute; bottom: 0; left: 0; right: 0; padding: 18px 18px max(20px, env(safe-area-inset-bottom)); display: flex; justify-content: center; background: linear-gradient(#1a1c2000, #1a1c20f5 55%); }
 .settings-pill { pointer-events: auto; border-radius: 99px; padding: 11px 20px; color: var(--text); background: #32363edb; font-size: 12px; box-shadow: 0 5px 16px #0003; }
-.settings-pill::before { content: "✦"; color: var(--accent); margin-right: 7px; }
 .page-progress { position: absolute; bottom: max(10px, env(safe-area-inset-bottom)); left: 0; right: 0; text-align: center; pointer-events: none; color: #aaa69d; font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .brightness-overlay { pointer-events: none; position: fixed; inset: 0; background: #000; opacity: 0; z-index: 8; transition: opacity .15s; }
 .brightness-indicator { position: fixed; z-index: 30; left: 50%; top: max(12px, env(safe-area-inset-top)); transform: translate(-50%, -8px); background: #2c3038e8; padding: 9px 15px; border-radius: 99px; color: var(--text); font-size: 13px; font-weight: 650; opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; white-space: nowrap; }
