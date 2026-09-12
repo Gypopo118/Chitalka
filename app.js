@@ -20,6 +20,7 @@ let pressTimer = null;
 let swipeStart = null;
 let toastTimer = null;
 let readerPageIndex = 0;
+let positionedId = null;
 let paginationCache = null;
 
 const app = document.querySelector('#app');
@@ -131,10 +132,10 @@ function plural(n, one, few, many) { const m = n % 10, h = n % 100; return m ===
 function clampLineHeight(value) { return Math.min(2.4, Math.max(1.2, Math.round((Number(value) || 1.65) * 20) / 20)); }
 function openReader(id) {
   const book = state.books.find(item => item.id === id); if (!book) return;
-  const pages = paginationCache?.id === id ? paginationCache.pages : fallbackPages(book); readerPageIndex = book.pageIndex ?? 0;
+  const pages = paginationCache?.id === id ? paginationCache.pages : fallbackPages(book); readerPageIndex = book.pageIndex ?? 0; positionedId = id;
   state.activeBookId = id; state.lastReaderId = id; book.updated = Date.now(); saveState(); view = 'reader'; chromeVisible = false; longPressId = null; history.pushState({ view: 'reader', id }, '', `#reader-${id}`); render();
 }
-function openLibrary() { state.activeBookId = null; saveState(); view = 'library'; settingsOpen = false; chromeVisible = false; history.pushState({ view: 'library' }, '', '#library'); render(); }
+function openLibrary() { state.activeBookId = null; positionedId = null; saveState(); view = 'library'; settingsOpen = false; chromeVisible = false; history.pushState({ view: 'library' }, '', '#library'); render(); }
 function updateSetting(key, value) { state.settings[key] = value; saveState(); render(); }
 function bindEvents() {
   document.querySelector('#add-book')?.addEventListener('click', () => fileInput.click());
@@ -300,7 +301,7 @@ function ensurePagination() {
   }
   measure.remove();
   paginationCache = { id: book.id, key, pages: pages.length ? pages : [book.html ? '' : ''] };
-  if (book.pageIndex == null && book.progress) readerPageIndex = pageIndexForProgress(paginationCache.pages.map(part => book.html ? htmlToText(part).length : part.length), book.progress);
+  if (positionedId !== book.id) { positionedId = book.id; if (book.pageIndex != null) readerPageIndex = Math.min(Math.max(book.pageIndex, 0), paginationCache.pages.length - 1); else if (book.progress) readerPageIndex = pageIndexForProgress(paginationCache.pages.map(part => book.html ? htmlToText(part).length : part.length), book.progress); }
   readerPageIndex = Math.min(readerPageIndex, paginationCache.pages.length - 1); render();
 }
 function changePage(delta) {
