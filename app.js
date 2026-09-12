@@ -137,6 +137,109 @@ function openReader(id) {
 }
 function openLibrary() { state.activeBookId = null; positionedId = null; saveState(); view = 'library'; settingsOpen = false; chromeVisible = false; history.pushState({ view: 'library' }, '', '#library'); render(); }
 function updateSetting(key, value) { state.settings[key] = value; saveState(); render(); }
+function closeImageViewer() { document.querySelector('.img-viewer')?.remove(); }
+function openImageViewer(src) {
+  closeImageViewer();
+  const overlay = document.createElement('div');
+  overlay.className = 'img-viewer';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-label', 'Просмотр изображения');
+  overlay.innerHTML = `<button class="img-viewer-close" type="button" aria-label="Закрыть">×</button><img src="${escapeHTML(src)}" alt="" draggable="false">`;
+  document.querySelector('#app').appendChild(overlay);
+  const img = overlay.querySelector('img');
+  const pointers = new Map();
+  let scale = 1, tx = 0, ty = 0;
+  let pinchBase = null, pinchMid0 = null, panStart = null, panBase = null, movedFlag = false;
+  let lastTap = 0, lastTapTarget = null;
+  const clampValue = (value, min, max) => Math.max(min, Math.min(max, value));
+  const apply = () => { img.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`; };
+  const clampPan = () => {
+    if (scale <= 1) { tx = 0; ty = 0; return; }
+    const w = img.clientWidth || img.naturalWidth || 1, h = img.clientHeight || img.naturalHeight || 1;
+    const sw = w * scale, sh = h * scale, vw = window.innerWidth, vh = window.innerHeight;
+    const Lx = -tx + img.getBoundingClientRect().left, Ly = -ty + img.getBoundingClientRect().top;
+    tx = sw <= vw ? (vw - sw) / 2 - Lx : clampValue(tx, vw - sw - Lx, -Lx);
+    ty = sh <= vh ? (vh - sh) / 2 - Ly : clampValue(ty, vh - sh - Ly, -Ly);
+  };
+  const doubleTapZoom = point => {
+    const s1 = scale === 1 ? 2 : 1;
+    const rect = img.getBoundingClientRect();
+    const Lx = rect.left - tx, Ly = rect.top - ty;
+    const k = s1 / scale;
+    overlay.classList.add('zooming');
+    if (s1 === 1) { scale = 1; tx = 0; ty = 0; }
+    else { scale = s1; tx = (point.x - Lx) * (1 - k) + tx * k; ty = (point.y - Ly) * (1 - k) + ty * k; clampPan(); }
+    apply();
+    setTimeout(() => overlay.classList.remove('zooming'), 220);
+  };
+  overlay.addEventListener('pointerdown', e => {
+    if (e.target.closest('.img-viewer-close')) return;
+    e.preventDefault();
+    try { overlay.setPointerCapture(e.pointerId); } catch (_) {}
+    const point = { x: e.clientX, y: e.clientY, target: e.target };
+    pointers.set(e.pointerId, point);
+    if (pointers.size === 1) {
+      const onImg = e.target === img;
+      const now = Date.now();
+      if (onImg && lastTapTarget === 'img' && lastTap > 0 && now - lastTap <= 300) { doubleTapZoom(point); lastTap = 0; lastTapTarget = null; }
+      else { lastTap = now; lastTapTarget = onImg ? 'img' : 'backdrop'; }
+      panStart = { x: e.clientX, y: e.clientY }; panBase = { tx, ty };
+    } else if (pointers.size === 2) {
+      lastTap = 0; lastTapTarget = null;
+      overlay.classList.remove('zooming');
+      const pts = [...pointers.values()];
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      if (dist > 0) pinchBase = { scale, tx, ty, dist };
+      pinchMid0 = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+      panStart = null;
+    }
+  });
+  overlay.addEventListener('pointermove', e => {
+    const point = pointers.get(e.pointerId);
+    if (!point) return;
+    point.x = e.clientX; point.y = e.clientY;
+    if (pointers.size >= 2 && pinchBase) {
+      const pts = [...pointers.values()];
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      if (dist > 0) {
+        const next = clampValue(pinchBase.scale * dist / pinchBase.dist, 1, 4);
+        const k = next / pinchBase.scale;
+        const mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+        scale = next;
+        tx = mid.x - pinchMid0.x * k + pinchBase.tx * k;
+        ty = mid.y - pinchMid0.y * k + pinchBase.ty * k;
+        clampPan(); apply();
+      }
+      movedFlag = true;
+    } else if (pointers.size === 1 && panStart) {
+      tx = panBase.tx + (point.x - panStart.x);
+      ty = panBase.ty + (point.y - panStart.y);
+      clampPan(); apply();
+      if (Math.abs(point.x - panStart.x) + Math.abs(point.y - panStart.y) > 8) { movedFlag = true; lastTap = 0; lastTapTarget = null; }
+    }
+  });
+  overlay.addEventListener('pointerup', e => {
+    const point = pointers.get(e.pointerId);
+    pointers.delete(e.pointerId);
+    if (pointers.size === 1) {
+      const remaining = [...pointers.values()][0];
+      panStart = { x: remaining.x, y: remaining.y }; panBase = { tx, ty };
+      pinchBase = null; pinchMid0 = null;
+    }
+    if (pointers.size === 0) {
+      pinchBase = null; pinchMid0 = null; panStart = null;
+      if (point?.target === overlay && !movedFlag) closeImageViewer();
+      movedFlag = false;
+    }
+  });
+  overlay.addEventListener('pointercancel', e => {
+    pointers.delete(e.pointerId);
+    if (pointers.size === 0) { pinchBase = null; pinchMid0 = null; panStart = null; movedFlag = false; }
+  });
+  overlay.addEventListener('contextmenu', e => e.preventDefault());
+  overlay.querySelector('.img-viewer-close').addEventListener('click', closeImageViewer);
+}
 function bindEvents() {
   document.querySelector('#add-book')?.addEventListener('click', () => fileInput.click());
   document.querySelectorAll('.book-card').forEach(card => {
@@ -175,6 +278,11 @@ function bindEvents() {
       const moved = !holdPos || Math.abs(e.clientX - holdPos.x) > 12 || Math.abs(e.clientY - holdPos.y) > 12;
       const fired = holdFired;
       cancelHold(); holdPos = null;
+      const img = e.target.closest('img');
+      if (img) {
+        if (!fired && quick && !moved) openImageViewer(img.getAttribute('src') || '');
+        return;
+      }
       if (fired || !quick || moved) return;
       if (chromeVisible) { chromeVisible = false; document.querySelector('.reader')?.classList.remove('chrome-visible'); }
       const rect = stage.getBoundingClientRect();
