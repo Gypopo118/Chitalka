@@ -105,7 +105,7 @@ function renderReader() {
     <section class="reader-stage" id="reader-stage"><div class="reader-copy ${settings.wordWrap ? 'word-wrap' : ''}" id="reader-copy">${paragraphs}</div></section>
     <div class="reader-chrome"><header class="reader-topbar"><button class="back-btn" id="back-library" aria-label="Назад в библиотеку"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5"/></svg></button><div class="reader-title">${escapeHTML(book.title)}</div></header><footer class="reader-bottom"><button class="settings-pill" id="open-settings">Настройки</button></footer></div>
     <div class="page-progress">${progress}%</div>
-    <div class="brightness-indicator" id="brightness-indicator">Яркость приложения: ${Math.round((1 - settings.brightness) * 100)}%</div><div class="brightness-overlay" style="opacity:${settings.brightness}"></div>
+    <div class="brightness-indicator" id="brightness-indicator">☀ ${Math.round((1 - settings.brightness) * 100)}%</div><div class="brightness-overlay" style="opacity:${settings.brightness}"></div>
   </main>`;
 }
 function renderSettings() {
@@ -159,21 +159,55 @@ function bindEvents() {
   document.querySelector('#word-wrap')?.addEventListener('change', e => updateSetting('wordWrap', e.target.checked));
   const stage = document.querySelector('#reader-stage');
   if (stage) {
-    let holdTimer = null, holdPos = null;
+    let holdTimer = null, holdPos = null, holdFired = false, downTime = 0;
     const cancelHold = () => { clearTimeout(holdTimer); holdTimer = null; };
     const toggleChrome = () => { chromeVisible = !chromeVisible; document.querySelector('.reader')?.classList.toggle('chrome-visible', chromeVisible); };
-    stage.addEventListener('pointerdown', e => { holdPos = { x: e.clientX, y: e.clientY }; cancelHold(); holdTimer = setTimeout(toggleChrome, 500); });
+    stage.addEventListener('pointerdown', e => { holdFired = false; holdPos = { x: e.clientX, y: e.clientY }; downTime = Date.now(); cancelHold(); holdTimer = setTimeout(() => { holdFired = true; toggleChrome(); }, 500); });
     stage.addEventListener('pointermove', e => { if (holdPos && (Math.abs(e.clientX - holdPos.x) > 12 || Math.abs(e.clientY - holdPos.y) > 12)) cancelHold(); });
-    stage.addEventListener('pointerup', cancelHold); stage.addEventListener('pointercancel', cancelHold);
+    stage.addEventListener('pointerup', e => {
+      const quick = Date.now() - downTime < 500;
+      const moved = !holdPos || Math.abs(e.clientX - holdPos.x) > 12 || Math.abs(e.clientY - holdPos.y) > 12;
+      const fired = holdFired;
+      cancelHold(); holdPos = null;
+      if (fired || !quick || moved) return;
+      const rect = stage.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      if (x < 0.25) changePage(-1); else if (x > 0.75) changePage(1);
+    });
+    stage.addEventListener('pointercancel', () => { cancelHold(); holdPos = null; });
     stage.addEventListener('contextmenu', e => e.preventDefault());
-    stage.addEventListener('touchstart', onTouchStart, { passive: true }); stage.addEventListener('touchend', onTouchEnd, { passive: true });
+    stage.addEventListener('touchstart', onTouchStart, { passive: true });
+    stage.addEventListener('touchmove', onTouchMove, { passive: true });
+    stage.addEventListener('touchend', onTouchEnd, { passive: true });
   }
 }
-function onTouchStart(e) { const t = e.changedTouches[0]; swipeStart = { x: t.clientX, y: t.clientY }; }
+const BRIGHT_MAX = 0.85;
+let brightGesture = null, brightDirty = false;
+function brightnessLabel(value) { return `☀ ${Math.round((1 - value) * 100)}%`; }
+function paintBrightness(value) {
+  const overlay = document.querySelector('.brightness-overlay'); if (overlay) overlay.style.opacity = value;
+  const indicator = document.querySelector('#brightness-indicator'); if (indicator) { indicator.textContent = brightnessLabel(value); indicator.classList.add('show'); }
+}
+function onTouchStart(e) { const t = e.changedTouches[0]; swipeStart = { x: t.clientX, y: t.clientY }; brightGesture = { y: t.clientY, value: state.settings.brightness }; brightDirty = false; }
+function onTouchMove(e) {
+  if (!brightGesture || !swipeStart) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - swipeStart.x, dy = t.clientY - swipeStart.y;
+  if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) {
+    const h = window.innerHeight || 760;
+    const next = Math.max(0, Math.min(BRIGHT_MAX, brightGesture.value - (dy / h) * BRIGHT_MAX));
+    state.settings.brightness = Number(next.toFixed(3));
+    brightDirty = true;
+    paintBrightness(state.settings.brightness);
+  }
+}
 function onTouchEnd(e) {
-  if (!swipeStart) return; const t = e.changedTouches[0]; const dx = t.clientX - swipeStart.x; const dy = t.clientY - swipeStart.y; swipeStart = null;
+  if (!swipeStart) { brightGesture = null; return; }
+  const t = e.changedTouches[0]; const dx = t.clientX - swipeStart.x; const dy = t.clientY - swipeStart.y; swipeStart = null; brightGesture = null;
   if (Math.abs(dx) > 65 && Math.abs(dx) > Math.abs(dy)) { changePage(dx < 0 ? 1 : -1); return; }
-  if (Math.abs(dy) > 65 && Math.abs(dy) > Math.abs(dx)) { const next = Math.max(0, Math.min(.72, state.settings.brightness + (dy < 0 ? -.08 : .08))); state.settings.brightness = Number(next.toFixed(2)); saveState(); const overlay = document.querySelector('.brightness-overlay'); if (overlay) overlay.style.opacity = next; const indicator = document.querySelector('#brightness-indicator'); if (indicator) { indicator.textContent = `Яркость приложения: ${Math.round((1 - next) * 100)}%`; indicator.classList.add('show'); setTimeout(() => indicator.classList.remove('show'), 850); } }
+  if (brightDirty) { brightDirty = false; saveState(); }
+  const indicator = document.querySelector('#brightness-indicator');
+  if (indicator?.classList.contains('show')) setTimeout(() => indicator.classList.remove('show'), 350);
 }
 function formatPage(text, isFirstPage) {
   return text.split(/\n{2,}/).map((part, index) => (isFirstPage && index === 0 ? `<h3>${escapeHTML(part)}</h3>` : `<p>${escapeHTML(part)}</p>`)).join('');
