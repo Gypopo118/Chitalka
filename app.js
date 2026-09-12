@@ -200,7 +200,7 @@ function onTouchMove(e) {
   const dx = t.clientX - swipeStart.x, dy = t.clientY - swipeStart.y;
   if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) {
     const h = window.innerHeight || 760;
-    const next = Math.max(0, Math.min(BRIGHT_MAX, brightGesture.value - (dy / h) * BRIGHT_MAX));
+    const next = Math.max(0, Math.min(BRIGHT_MAX, brightGesture.value + (dy / h) * BRIGHT_MAX));
     state.settings.brightness = Number(next.toFixed(3));
     brightDirty = true;
     paintBrightness(state.settings.brightness);
