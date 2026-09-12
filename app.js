@@ -36,14 +36,19 @@ function loadState() {
   } catch (_) {}
   return typeof structuredClone === 'function' ? structuredClone(DEFAULT_STATE) : JSON.parse(JSON.stringify(DEFAULT_STATE));
 }
+function isQuotaError(err) { return !!err && (err.name === 'QuotaExceededError' || err.code === 22 || err.code === 1014); }
+function stripImages(html) { return (html || '').replace(/<img\b[^>]*>/gi, ''); }
 function saveState() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-  catch (_) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); return; }
+  catch (err) {
+    if (!isQuotaError(err)) return;
     try {
-      const slim = { ...state, books: state.books.map(book => { const copy = { ...book }; delete copy.html; delete copy.coverData; return copy; }) };
+      const slim = { ...state, books: state.books.map(book => (book.html ? { ...book, html: stripImages(book.html) } : book)) };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(slim));
-      console.warn('chitalca: localStorage full, rich content kept in memory only');
+      console.warn('chitalca: localStorage full, images dropped, text and progress saved');
+      return;
     } catch (_) {}
+    showToast('Мало места на устройстве: позиция может не сохраниться');
   }
 }
 function activeBook() { return state.books.find(book => book.id === state.activeBookId) || state.books[0]; }
@@ -524,5 +529,7 @@ async function unzip(file) {
 
 window.addEventListener('popstate', () => { if (settingsOpen) { settingsOpen = false; render(); } else if (view === 'reader') { openLibrary(); } else if (state.lastReaderId && state.books.some(book => book.id === state.lastReaderId)) { openReader(state.lastReaderId); } });
 window.addEventListener('resize', () => { if (view === 'reader') { paginationCache = null; render(); } });
+window.addEventListener('pagehide', () => { try { saveState(); } catch (_) {} });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { try { saveState(); } catch (_) {} } });
 if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
 render();
