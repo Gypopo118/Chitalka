@@ -34,7 +34,7 @@ jobs:
         run: npx cap add android
 
       - name: Install launcher icons
-        run: cp -r android-res/mipmap-* android/app/src/main/res/
+        run: cp -r android-res/* android/app/src/main/res/
 
       - name: Sync Capacitor
         run: npx cap sync android
