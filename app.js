@@ -216,7 +216,7 @@ function onTouchEnd(e) {
   if (indicator?.classList.contains('show')) setTimeout(() => indicator.classList.remove('show'), 350);
 }
 function formatPage(text, isFirstPage) {
-  return text.split(/\n{2,}/).map((part, index) => (isFirstPage && index === 0 ? `<h3>${escapeHTML(part)}</h3>` : `<p>${escapeHTML(part)}</p>`)).join('');
+  return text.split(/\n{2,}/).map((part, index) => { const clean = part.replace(/\s+$/, ''); return (isFirstPage && index === 0 ? `<h3>${escapeHTML(clean)}</h3>` : `<p>${escapeHTML(clean)}</p>`); }).join('');
 }
 function paginateText(text) {
   const maxChars = Math.max(650, Math.min(1250, Math.floor((window.innerHeight || 760) * 1.35)));
@@ -247,9 +247,16 @@ function explodeBlock(blockHtml) {
   }
   if (el.querySelector('img')) return [{ atomic: blockHtml }];
   if (!['p', 'h1', 'h2', 'h3', 'h4', 'blockquote'].includes(tag)) return [{ atomic: blockHtml }];
-  const words = (el.textContent || '').match(/[^\s]+/g) || [];
+  const cleaned = el.cloneNode(true);
+  for (let node = cleaned.lastChild; node; node = cleaned.lastChild) {
+    if (node.nodeType !== 3) break;
+    node.textContent = node.textContent.replace(/\s+$/, '');
+    if (node.textContent) break;
+    cleaned.removeChild(node);
+  }
+  const words = (cleaned.textContent || '').match(/[^\s]+/g) || [];
   if (!words.length) return [];
-  return [{ tag, words, html: blockHtml }];
+  return [{ tag, words, html: cleaned.outerHTML }];
 }
 function wrapWords(tag, words) { return `<${tag}>${escapeHTML(words.join(' '))}</${tag}>`; }
 function ensurePagination() {

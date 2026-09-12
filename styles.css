@@ -84,6 +84,7 @@ h1 { margin-top: 5px; font-size: clamp(30px, 8vw, 40px); letter-spacing: -.045em
 .reader-copy blockquote { margin: 0 0 1.1em; padding-left: 1em; border-left: 3px solid #ffffff2e; opacity: .94; }
 .reader-copy img { display: block; max-width: 100%; height: auto; max-height: 52dvh; object-fit: contain; margin: 0.6em auto; border-radius: 8px; background: #ffffff14; }
 .reader-copy hr { border: 0; border-top: 1px solid #ffffff26; margin: 1.1em 0; }
+.reader-copy > :last-child { margin-bottom: 0; }
 .reader-chrome { position: fixed; inset: 0; pointer-events: none; z-index: 10; opacity: 0; transition: opacity .2s; }
 .reader.chrome-visible .reader-chrome { opacity: 1; }
 .reader-topbar { pointer-events: auto; position: absolute; top: 0; left: 0; right: 0; padding: max(17px, env(safe-area-inset-top)) 18px 16px; background: linear-gradient(#1a1c20f2, #1a1c2000); display: flex; align-items: center; gap: 12px; }
