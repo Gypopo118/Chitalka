@@ -562,8 +562,24 @@ function startPaginationRun(key) {
     if (!more) { finish(); return; }
     setTimeout(step, 0);
   };
+  const beginStepping = () => {
+    if (run.cancelled) { measure.remove(); if (paginationRun === run) paginationRun = null; return; }
+    setTimeout(step, 0);
+  };
   paginationRun = run;
-  setTimeout(step, 0);
+  if (book.html) {
+    const srcs = [...new Set([...book.html.matchAll(/<img\b[^>]*\bsrc="([^"]+)"/gi)].map(m => m[1]))].slice(0, 100);
+    if (srcs.length) {
+      const preload = srcs.map(src => { const im = new Image(); im.decoding = 'async'; try { im.src = src; } catch (_) {} return im; });
+      Promise.allSettled(preload.map(im => Promise.race([Promise.resolve().then(() => im.decode()).catch(() => 0), new Promise(resolve => setTimeout(resolve, 1500))])))
+        .then(() => {
+          if (run.cancelled || paginationKey() !== key) { measure.remove(); if (paginationRun === run) paginationRun = null; ensurePagination(); return; }
+          beginStepping();
+        });
+      return;
+    }
+  }
+  beginStepping();
 }
 function changePage(delta) {
   const book = activeBook(); if (!book) return; const pages = paginationCache?.id === book.id ? paginationCache.pages : fallbackPages(book); const next = Math.max(0, Math.min(pages.length - 1, readerPageIndex + delta));
